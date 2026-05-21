@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+*.pycache
+database.db
+downloads/
+*.mp4
