@@ -31,9 +31,6 @@ PLATFORM_EMOJI = {
     "youtube": "▶️ YouTube",
     "pinterest": "📌 Pinterest",
     "twitch": "🎮 Twitch",
-    "spotify": "🎧 Spotify",
-    "applemusic": "🍎 Apple Music",
-    "yandexmusic": "🎶 Яндекс Музыка",
     "youtubemusic": "🎵 YouTube Music",
 }
 
@@ -139,7 +136,6 @@ async def cmd_start(message: Message):
             "👋 <b>ClearDownloader здесь!</b>\n\n"
             "Просто скинь ссылку — скачаю видео или музыку 🚀\n\n"
             "📹 TikTok · Reels · YouTube · Twitch\n"
-            "🎵 Spotify · Apple Music · Яндекс Музыка\n"
             "🖼 Pinterest\n\n"
             "💡 <i>Для полной справки напиши мне в личку.</i>",
             parse_mode="HTML",
@@ -152,7 +148,6 @@ async def cmd_start(message: Message):
         "турбо-скорости 🚀\n\n"
         "📊 <b>Я покажу индикатор загрузки в реальном времени, а также:</b>\n"
         "📹 Видео из <b>TikTok, Reels, YouTube Shorts, Twitch</b> — <i>полностью без водяных знаков!</i>\n"
-        "🎵 Музыку из <b>Spotify, Apple Music, Яндекс Музыки</b> — <i>в формате MP3 с обложками и тегами!</i>\n"
         "🖼 Контент из <b>Pinterest</b> — <i>фото и GIF.</i>\n\n"
         "📝 <b>AI-фишка:</b> Распознаю и прикреплю текст из видео к твоему файлу!\n\n"
         "⚡ <i>Жду твою первую ссылку...</i>",

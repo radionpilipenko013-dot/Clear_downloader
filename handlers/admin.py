@@ -122,17 +122,9 @@ def _back_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-async def _is_admin(tg_id: int) -> bool:
-    """Проверить, является ли пользователь админом"""
-    return tg_id == ADMIN_ID
-
-
-@router.message(CommandStart())
+@router.message(CommandStart(), F.from_user.id == ADMIN_ID)
 async def cmd_admin(message: Message):
     """Команда /start для админа"""
-    if not await _is_admin(message.from_user.id):
-        return
-
     await message.answer(
         "🔐 <b>Админ-панель ClearDownloader</b>\n\n"
         "Выбери опцию для просмотра статистики:",
@@ -144,7 +136,7 @@ async def cmd_admin(message: Message):
 @router.message(F.text == "/admin")
 async def admin_command(message: Message):
     """Команда /admin для доступа к админке"""
-    if not await _is_admin(message.from_user.id):
+    if message.from_user.id != ADMIN_ID:
         await message.answer("❌ У тебя нет доступа к этой команде.")
         return
 
@@ -156,13 +148,9 @@ async def admin_command(message: Message):
     )
 
 
-@router.callback_query(F.data == "admin:stats")
+@router.callback_query(F.data == "admin:stats", F.from_user.id == ADMIN_ID)
 async def show_stats(callback: CallbackQuery):
     """Показать общую статистику"""
-    if not await _is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
     await callback.answer()
 
     total_users = await get_total_users()
@@ -188,13 +176,9 @@ async def show_stats(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "admin:users")
+@router.callback_query(F.data == "admin:users", F.from_user.id == ADMIN_ID)
 async def show_users(callback: CallbackQuery):
     """Показать список пользователей"""
-    if not await _is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
     await callback.answer()
 
     users = await get_all_users_info()
@@ -237,13 +221,9 @@ async def show_users(callback: CallbackQuery):
     callback.bot._admin_users_pages = text_parts
 
 
-@router.callback_query(F.data.startswith("admin:users_page:"))
+@router.callback_query(F.data.startswith("admin:users_page:"), F.from_user.id == ADMIN_ID)
 async def users_pagination(callback: CallbackQuery):
     """Пагинация пользователей"""
-    if not await _is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
     await callback.answer()
 
     page = int(callback.data.split(":")[2])
@@ -257,13 +237,9 @@ async def users_pagination(callback: CallbackQuery):
         )
 
 
-@router.callback_query(F.data == "admin:platforms")
+@router.callback_query(F.data == "admin:platforms", F.from_user.id == ADMIN_ID)
 async def show_platforms(callback: CallbackQuery):
     """Показать статистику платформ"""
-    if not await _is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
     await callback.answer()
 
     platforms = await get_popular_platforms()
@@ -307,13 +283,9 @@ async def show_platforms(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "admin:weekly")
+@router.callback_query(F.data == "admin:weekly", F.from_user.id == ADMIN_ID)
 async def show_weekly(callback: CallbackQuery):
     """Показать график за неделю"""
-    if not await _is_admin(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещён", show_alert=True)
-        return
-
     await callback.answer()
 
     async with SessionLocal() as session:
@@ -353,7 +325,7 @@ async def show_weekly(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "admin:menu")
+@router.callback_query(F.data == "admin:menu", F.from_user.id == ADMIN_ID)
 async def back_to_menu(callback: CallbackQuery):
     """Вернуться в главное меню"""
     await callback.answer()
@@ -399,7 +371,7 @@ def _get_pagination_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 
-@router.callback_query(F.data == "admin:noop")
+@router.callback_query(F.data == "admin:noop", F.from_user.id == ADMIN_ID)
 async def noop(callback: CallbackQuery):
     """No-op для кнопки номера страницы"""
     await callback.answer()
