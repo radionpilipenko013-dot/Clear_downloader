@@ -1,5 +1,8 @@
 {
   "packages": {
     "python": "3.10"
+  },
+  "env": {
+    "MISE_PYTHON_GITHUB_ATTESTATIONS": "false"
   }
 }
