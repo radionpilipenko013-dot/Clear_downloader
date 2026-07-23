@@ -6,10 +6,11 @@ from config import DOWNLOADS_DIR
 
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
-FFMPEG_PATH = r"C:\Users\User\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
+# На Linux (Railway) ffmpeg ставится как системный пакет и доступен через PATH.
+# Можно переопределить через переменную окружения FFMPEG_PATH при необходимости.
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 ProgressCallback = Optional[Callable[[int, str, str], Awaitable[None]]]
-
 
 
 def detect_platform(url: str) -> str:
@@ -53,13 +54,12 @@ async def download_music(url: str, progress_callback: ProgressCallback = None) -
         "--format",
         "mp3",
         "--ffmpeg",
-        f"{FFMPEG_PATH}\\ffmpeg.exe",
+        FFMPEG_PATH,
         "--threads",
-        "4",  
+        "4",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-
 
     stages = [
         (20, "Нашёл трек, качаю аудио..."),
@@ -149,10 +149,10 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
         "progress_hooks": [ydl_progress_hook],
         "ffmpeg_location": FFMPEG_PATH,
 
-        "concurrent_fragment_downloads": 8, 
+        "concurrent_fragment_downloads": 8,
         "retries": 3,
         "fragment_retries": 3,
-        "http_chunk_size": 10485760, 
+        "http_chunk_size": 10485760,
         "buffersize": 1024 * 16,
         "http_headers": {
             "User-Agent": (
@@ -191,7 +191,6 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
                 base = os.path.splitext(filename)[0]
                 filename = base + ".mp4"
             return filename
-
 
     filename = await loop.run_in_executor(None, _run_ydl)
     return filename

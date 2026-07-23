@@ -1,6 +1,8 @@
 {
   "packages": {
-    "python": "3.10"
+    "python": "3.10",
+    "ffmpeg": "latest",
+    "libreoffice": "latest"
   },
   "env": {
     "MISE_PYTHON_GITHUB_ATTESTATIONS": "false"

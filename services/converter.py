@@ -1,8 +1,8 @@
 import os
+import subprocess
 import zipfile
 from PIL import Image
 from pdf2docx import Converter
-from docx2pdf import convert as docx2pdf_convert
 
 
 def images_to_pdf(image_paths: list[str], output_path: str) -> str:
@@ -20,7 +20,42 @@ def pdf_to_docx(input_path: str, output_path: str) -> str:
 
 
 def docx_to_pdf(input_path: str, output_path: str) -> str:
-    docx2pdf_convert(input_path, output_path)
+    """
+    Конвертация DOCX -> PDF через LibreOffice в headless-режиме.
+    Требует установленного пакета libreoffice в системе (см. railpack-plan.json).
+    """
+    output_dir = os.path.dirname(output_path) or "."
+    os.makedirs(output_dir, exist_ok=True)
+
+    result = subprocess.run(
+        [
+            "libreoffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            output_dir,
+            input_path,
+        ],
+        capture_output=True,
+        timeout=60,
+    )
+
+    if result.returncode != 0:
+        raise Exception(
+            f"LibreOffice conversion failed: {result.stderr.decode(errors='ignore')[:300]}"
+        )
+
+    generated = os.path.join(
+        output_dir, os.path.splitext(os.path.basename(input_path))[0] + ".pdf"
+    )
+
+    if not os.path.exists(generated):
+        raise Exception("LibreOffice did not produce the expected output file")
+
+    if generated != output_path:
+        os.replace(generated, output_path)
+
     return output_path
 
 
