@@ -1,16 +1,16 @@
 import yt_dlp
 import os
 import asyncio
-from typing import Callable, Awaitable, Optional
+from typing import Callable, Awaitable, Optional, Union
 from config import DOWNLOADS_DIR
 
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
-# На Linux (Railway) ffmpeg ставится как системный пакет и доступен через PATH.
-# Можно переопределить через переменную окружения FFMPEG_PATH при необходимости.
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 ProgressCallback = Optional[Callable[[int, str, str], Awaitable[None]]]
+
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 
 def detect_platform(url: str) -> str:
@@ -40,6 +40,10 @@ def is_music_platform(url: str) -> bool:
         x in url
         for x in ["spotify.com", "music.apple.com", "music.yandex", "music.youtube.com"]
     )
+
+
+def is_tiktok_photo(url: str) -> bool:
+    return "tiktok.com" in url and "/photo/" in url
 
 
 async def download_music(url: str, progress_callback: ProgressCallback = None) -> str:
@@ -98,7 +102,19 @@ async def download_music(url: str, progress_callback: ProgressCallback = None) -
     return latest
 
 
-async def download_video(url: str, progress_callback: ProgressCallback = None) -> str:
+def _resolve_file(ydl, info) -> Optional[str]:
+    filename = ydl.prepare_filename(info)
+    if os.path.exists(filename):
+        return filename
+    base = os.path.splitext(filename)[0]
+    for ext in IMAGE_EXTS + (".mp4", ".gif"):
+        candidate = base + ext
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+async def download_video(url: str, progress_callback: ProgressCallback = None) -> Union[str, list]:
     if is_music_platform(url):
         return await download_music(url, progress_callback)
 
@@ -142,7 +158,6 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
                 )
 
     ydl_opts = {
-        "outtmpl": f"{DOWNLOADS_DIR}/%(id)s.%(ext)s",
         "quiet": True,
         "no_warnings": True,
         "noprogress": False,
@@ -164,14 +179,22 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
     }
 
     if "tiktok.com" in url:
-        ydl_opts["format"] = "download_addr-0/bestvideo[ext=mp4]+bestaudio/best"
-        ydl_opts["merge_output_format"] = "mp4"
+        if is_tiktok_photo(url):
+            ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s_%(playlist_index)s.%(ext)s"
+            ydl_opts["format"] = "best"
+        else:
+            ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
+            ydl_opts["format"] = "download_addr-0/bestvideo[ext=mp4]+bestaudio/best"
+            ydl_opts["merge_output_format"] = "mp4"
     elif "pinterest.com" in url or "pin.it" in url:
+        ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
         ydl_opts["format"] = "best"
     elif "twitch.tv" in url:
+        ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
         ydl_opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         ydl_opts["merge_output_format"] = "mp4"
     else:
+        ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
         ydl_opts["format"] = (
             "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]"
             "/bestvideo[height<=720]+bestaudio"
@@ -186,14 +209,26 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
     def _run_ydl():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            if not os.path.exists(filename):
-                base = os.path.splitext(filename)[0]
-                filename = base + ".mp4"
+
+            if "entries" in info and info["entries"]:
+                files = []
+                for entry in info["entries"]:
+                    if entry is None:
+                        continue
+                    fn = _resolve_file(ydl, entry)
+                    if fn:
+                        files.append(fn)
+                if files:
+                    return files if len(files) > 1 else files[0]
+                raise Exception("Не удалось найти скачанные файлы слайдшоу")
+
+            filename = _resolve_file(ydl, info)
+            if not filename:
+                raise Exception("Файл не найден после скачивания")
             return filename
 
-    filename = await loop.run_in_executor(None, _run_ydl)
-    return filename
+    result = await loop.run_in_executor(None, _run_ydl)
+    return result
 
 
 def _stage_label(pct: int) -> str:

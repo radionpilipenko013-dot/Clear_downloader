@@ -8,6 +8,8 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
+    InputMediaPhoto,
+    InputMediaVideo,
 )
 from aiogram.filters import CommandStart
 from aiogram.enums import ChatType
@@ -35,6 +37,8 @@ PLATFORM_EMOJI = {
 }
 
 GROUP_CHAT_TYPES = {ChatType.GROUP, ChatType.SUPERGROUP}
+
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 _pending_stt: dict[int, str] = {}
 
@@ -117,6 +121,19 @@ async def _send_audio(message: Message, path: str) -> None:
         await message.answer_audio(FSInputFile(path))
 
 
+async def _send_media_group(message: Message, paths: list[str], is_group: bool) -> None:
+    media = []
+    for p in paths:
+        if p.endswith(IMAGE_EXTS):
+            media.append(InputMediaPhoto(media=FSInputFile(p)))
+        else:
+            media.append(InputMediaVideo(media=FSInputFile(p)))
+    if is_group:
+        await message.reply_media_group(media)
+    else:
+        await message.answer_media_group(media)
+
+
 async def _ensure_user(tg_id: int, username: str | None):
     async with SessionLocal() as session:
         from sqlalchemy import select
@@ -191,35 +208,38 @@ async def handle_link(message: Message):
         path = await download_video(url, progress_callback=on_progress)
         await safe_edit(msg, format_progress_msg(platform, "Отправляю файл...", 95))
 
-        is_image = path.endswith((".jpg", ".jpeg", ".png", ".webp"))
-        is_gif = path.endswith(".gif")
-
-        if path.endswith(".mp3"):
-            await _send_audio(message, path)
-        elif is_image:
-            if is_group:
-                await message.reply_photo(FSInputFile(path))
-            else:
-                await message.answer_photo(FSInputFile(path))
-        elif is_gif:
-            if is_group:
-                await message.reply_animation(FSInputFile(path))
-            else:
-                await message.answer_animation(FSInputFile(path))
+        if isinstance(path, list):
+            await _send_media_group(message, path, is_group)
         else:
-            if is_group:
-                await message.reply_video(FSInputFile(path))
-            else:
-                await message.answer_video(FSInputFile(path))
+            is_image = path.endswith(IMAGE_EXTS)
+            is_gif = path.endswith(".gif")
 
-        if not is_image and not is_gif:
-            _pending_stt[message.from_user.id] = url
-            kb = _stt_keyboard()
-            stt_text = "Что хочешь сделать с файлом?"
-            if is_group:
-                await message.reply(stt_text, reply_markup=kb, parse_mode="HTML")
+            if path.endswith(".mp3"):
+                await _send_audio(message, path)
+            elif is_image:
+                if is_group:
+                    await message.reply_photo(FSInputFile(path))
+                else:
+                    await message.answer_photo(FSInputFile(path))
+            elif is_gif:
+                if is_group:
+                    await message.reply_animation(FSInputFile(path))
+                else:
+                    await message.answer_animation(FSInputFile(path))
             else:
-                await message.answer(stt_text, reply_markup=kb, parse_mode="HTML")
+                if is_group:
+                    await message.reply_video(FSInputFile(path))
+                else:
+                    await message.answer_video(FSInputFile(path))
+
+            if not is_image and not is_gif:
+                _pending_stt[message.from_user.id] = url
+                kb = _stt_keyboard()
+                stt_text = "Что хочешь сделать с файлом?"
+                if is_group:
+                    await message.reply(stt_text, reply_markup=kb, parse_mode="HTML")
+                else:
+                    await message.answer(stt_text, reply_markup=kb, parse_mode="HTML")
 
         await _animate_done(msg)
 
@@ -232,8 +252,11 @@ async def handle_link(message: Message):
         except Exception:
             pass
     finally:
-        if path and os.path.exists(path):
-            os.remove(path)
+        if path:
+            paths = path if isinstance(path, list) else [path]
+            for p in paths:
+                if p and os.path.exists(p):
+                    os.remove(p)
 
     if not error:
         async with SessionLocal() as session:
@@ -267,6 +290,13 @@ async def handle_stt(callback: CallbackQuery):
     path = None
     try:
         path = await asyncio.wait_for(download_video(url), timeout=120)
+
+        if isinstance(path, list):
+            await safe_edit(
+                status,
+                "⚠️ <b>Распознавание недоступно для слайдшоу.</b>",
+            )
+            return
 
         music_mode = mode in ("music", "lyrics")
 
@@ -335,7 +365,7 @@ async def handle_stt(callback: CallbackQuery):
                 "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
             )
 
-        else:  # lyrics
+        else:
             await safe_edit(
                 status,
                 "🧠 <b>Расшифровываю текст песни через Whisper...</b>\n"
@@ -384,5 +414,8 @@ async def handle_stt(callback: CallbackQuery):
             f"❌ <b>Ошибка распознавания:</b>\n<code>{e}</code>",
         )
     finally:
-        if path and os.path.exists(path):
-            os.remove(path)
+        if path:
+            paths = path if isinstance(path, list) else [path]
+            for p in paths:
+                if p and os.path.exists(p):
+                    os.remove(p)
