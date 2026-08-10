@@ -321,8 +321,8 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
     else:
         ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
         ydl_opts["format"] = (
-            "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]"
-            "/best[height<=720][ext=mp4]"
+            "bestvideo[height<=720]+bestaudio"
+            "/best[height<=720]"
             "/best"
         )
         ydl_opts["merge_output_format"] = "mp4"
@@ -371,6 +371,12 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
             if "external_downloader" in ydl_opts and "aria2c" in str(e).lower():
                 fallback_opts = {k: v for k, v in ydl_opts.items()
                                   if k not in ("external_downloader", "external_downloader_args")}
+                return _attempt(fallback_opts)
+            if "Requested format is not available" in str(e):
+                fallback_opts = dict(ydl_opts)
+                fallback_opts["format"] = "best"
+                fallback_opts.pop("external_downloader", None)
+                fallback_opts.pop("external_downloader_args", None)
                 return _attempt(fallback_opts)
             raise
 
