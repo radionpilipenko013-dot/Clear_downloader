@@ -13,6 +13,7 @@ charset-normalizer==3.4.9
 colorama==0.4.6
 filelock==3.32.0
 fire==0.7.1
+fonttools==4.63.0
 frozenlist==1.8.0
 fsspec==2026.6.0
 greenlet==3.5.3
@@ -31,10 +32,14 @@ networkx==3.6.1
 numba==0.66.0
 numpy==2.4.6
 openai-whisper==20250625
+opencv-python-headless==5.0.0.93
+pdf2docx==0.5.13
 pillow==12.3.0
 propcache==0.5.2
 pydantic==2.13.4
 pydantic_core==2.46.4
+pymupdf==1.28.0
+python-docx==1.2.0
 python-dotenv==1.2.2
 regex==2026.7.19
 requests==2.34.2
