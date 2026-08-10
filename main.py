@@ -7,6 +7,7 @@ from handlers.idea import router as idea_router
 from handlers.admin import router as admin_router
 from handlers.convert import router as convert_router
 from database import init_db
+from handlers import settings, payment
 
 async def main():
     bot = Bot(token=TOKEN)
@@ -15,7 +16,8 @@ async def main():
     dp.include_router(idea_router)
     dp.include_router(convert_router)
     dp.include_router(router)
-
+    dp.include_router(settings.router)
+    dp.include_router(payment.router)
     await init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

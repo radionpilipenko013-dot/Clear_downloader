@@ -11,9 +11,9 @@ from aiogram.types import (
     InputMediaPhoto,
     InputMediaVideo,
 )
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.enums import ChatType
-from services.downloader import download_video, detect_platform, is_music_platform
+from services.downloader import download_video, detect_platform, is_music_platform, convert_to_gif, get_video_duration
 from services.speach_to_text import (
     transcribe_file,
     recognize_music,
@@ -24,6 +24,11 @@ from database import SessionLocal
 from database.models import User, Download
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3
+from sqlalchemy import select, func
+
+from handlers.settings import get_user, is_premium_active
+from keyboards.inline import stt_keyboard, premium_keyboard, language_keyboard
+from locales import t
 
 router = Router()
 
@@ -31,14 +36,17 @@ PLATFORM_EMOJI = {
     "tiktok": "🎵 TikTok",
     "instagram": "📸 Instagram",
     "youtube": "▶️ YouTube",
-    "pinterest": "📌 Pinterest",
-    "twitch": "🎮 Twitch",
+    "facebook": "📘 Facebook",
     "youtubemusic": "🎵 YouTube Music",
+    "spotify": "🎧 Spotify",
 }
 
 GROUP_CHAT_TYPES = {ChatType.GROUP, ChatType.SUPERGROUP}
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
+FREE_YOUTUBE_LIMIT_MIN = 10
+PREMIUM_YOUTUBE_LIMIT_MIN = 60
 
 _pending_stt: dict[int, str] = {}
 
@@ -84,17 +92,6 @@ async def _animate_done(msg: Message):
         pass
 
 
-def _stt_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🎵 Распознать текст музыки", callback_data="stt:music"),
-        ],
-        [
-            InlineKeyboardButton(text="📝 Распознать речь", callback_data="stt:video"),
-        ],
-    ])
-
-
 async def _send_audio(message: Message, path: str) -> None:
     try:
         tags = ID3(path)
@@ -134,42 +131,54 @@ async def _send_media_group(message: Message, paths: list[str], is_group: bool) 
         await message.answer_media_group(media)
 
 
-async def _ensure_user(tg_id: int, username: str | None):
-    async with SessionLocal() as session:
-        from sqlalchemy import select
-
-        result = await session.execute(select(User).where(User.tg_id == tg_id))
-        if not result.scalar_one_or_none():
-            session.add(User(tg_id=tg_id, username=username))
-            await session.commit()
-
-
 @router.message(CommandStart())
 async def cmd_start(message: Message):
-    await _ensure_user(message.from_user.id, message.from_user.username)
+    user = await get_user(message.from_user.id, message.from_user.username)
 
     if message.chat.type in GROUP_CHAT_TYPES:
-        await message.reply(
-            "👋 <b>ClearDownloader здесь!</b>\n\n"
-            "Просто скинь ссылку — скачаю видео или музыку 🚀\n\n"
-            "📹 TikTok · Reels · YouTube · Twitch\n"
-            "🖼 Pinterest\n\n"
-            "💡 <i>Для полной справки напиши мне в личку.</i>",
+        await message.reply(t("start_group", user.language), parse_mode="HTML")
+        return
+
+    if not user.language_selected:
+        await message.answer(t("choose_language", user.language), reply_markup=language_keyboard())
+        return
+
+    await message.answer(t("start_private", user.language), parse_mode="HTML")
+
+
+@router.message(Command("profile"))
+async def cmd_profile(message: Message):
+    user = await get_user(message.from_user.id, message.from_user.username)
+    lang = user.language
+
+    async with SessionLocal() as session:
+        result = await session.execute(
+            select(Download.platform, func.count(Download.id))
+            .where(Download.tg_id == message.from_user.id)
+            .group_by(Download.platform)
+        )
+        stats = result.all()
+
+    if not stats:
+        await message.answer(
+            "📊 <b>Твоя статистика</b>\n\n"
+            "Пока пусто — пришли первую ссылку, и здесь появится статистика! 🚀",
             parse_mode="HTML",
         )
         return
 
-    await message.answer(
-        "👋 <b>Привет! Я ClearDownloader — твой умный бот-загрузчик!</b>\n\n"
-        "Просто отправь мне ссылку на видео или трек, и я скачаю его на "
-        "турбо-скорости 🚀\n\n"
-        "📊 <b>Я покажу индикатор загрузки в реальном времени, а также:</b>\n"
-        "📹 Видео из <b>TikTok, Reels, YouTube Shorts, Twitch</b> — <i>полностью без водяных знаков!</i>\n"
-        "🖼 Контент из <b>Pinterest</b> — <i>фото и GIF.</i>\n\n"
-        "📝 <b>AI-фишка:</b> Распознаю и прикреплю текст из видео к твоему файлу!\n\n"
-        "⚡ <i>Жду твою первую ссылку...</i>",
-        parse_mode="HTML",
-    )
+    stats_sorted = sorted(stats, key=lambda x: x[1], reverse=True)
+    total = sum(count for _, count in stats_sorted)
+
+    lines = ["📊 <b>Твоя статистика скачиваний</b>", ""]
+    for platform, count in stats_sorted:
+        label = PLATFORM_EMOJI.get(platform, f"🌐 {platform.capitalize()}")
+        lines.append(f"{label}: <b>{count}</b>")
+
+    lines.append("")
+    lines.append(f"🔥 Всего скачано: <b>{total}</b>")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(F.text.regexp(r"https?://"))
@@ -177,15 +186,33 @@ async def handle_link(message: Message):
     url = message.text.strip()
     platform = detect_platform(url)
 
-    await _ensure_user(message.from_user.id, message.from_user.username)
+    user = await get_user(message.from_user.id, message.from_user.username)
+    lang = user.language
 
     if platform == "unknown":
         if message.chat.type in GROUP_CHAT_TYPES:
             return
-        await message.answer("❌ <b>Ссылка не поддерживается.</b>", parse_mode="HTML")
+        await message.answer(t("unsupported_link", lang), parse_mode="HTML")
         return
 
     is_group = message.chat.type in GROUP_CHAT_TYPES
+
+    if platform == "youtube":
+        duration = await get_video_duration(url)
+        premium = await is_premium_active(message.from_user.id)
+        limit_min = PREMIUM_YOUTUBE_LIMIT_MIN if premium else FREE_YOUTUBE_LIMIT_MIN
+        if duration and duration > limit_min * 60:
+            await message.answer(
+                t(
+                    "duration_limit",
+                    lang,
+                    limit=FREE_YOUTUBE_LIMIT_MIN,
+                    premium_limit=PREMIUM_YOUTUBE_LIMIT_MIN,
+                ),
+                reply_markup=premium_keyboard(lang),
+                parse_mode="HTML",
+            )
+            return
 
     if is_group:
         msg = await message.reply(
@@ -213,8 +240,9 @@ async def handle_link(message: Message):
         else:
             is_image = path.endswith(IMAGE_EXTS)
             is_gif = path.endswith(".gif")
+            is_audio = path.endswith(".mp3")
 
-            if path.endswith(".mp3"):
+            if is_audio:
                 await _send_audio(message, path)
             elif is_image:
                 if is_group:
@@ -232,9 +260,9 @@ async def handle_link(message: Message):
                 else:
                     await message.answer_video(FSInputFile(path))
 
-            if not is_image and not is_gif:
+            if not is_image and not is_gif and not is_audio:
                 _pending_stt[message.from_user.id] = url
-                kb = _stt_keyboard()
+                kb = stt_keyboard()
                 stt_text = "Что хочешь сделать с файлом?"
                 if is_group:
                     await message.reply(stt_text, reply_markup=kb, parse_mode="HTML")
@@ -264,6 +292,65 @@ async def handle_link(message: Message):
                 Download(tg_id=message.from_user.id, url=url, platform=platform)
             )
             await session.commit()
+
+
+@router.callback_query(F.data.startswith("gif:"))
+async def handle_gif(callback: CallbackQuery):
+    await callback.answer()
+
+    url = _pending_stt.get(callback.from_user.id)
+    if not url:
+        await callback.message.answer("⚠️ Ссылка устарела, отправь её заново.")
+        return
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    status = await callback.message.answer(
+        "⬇️ <b>Скачиваю видео для конвертации...</b>",
+        parse_mode="HTML",
+    )
+
+    video_path = None
+    gif_path = None
+    try:
+        video_path = await asyncio.wait_for(download_video(url), timeout=120)
+
+        if isinstance(video_path, list):
+            await safe_edit(status, "⚠️ <b>GIF недоступен для слайдшоу.</b>")
+            return
+
+        if video_path.endswith(IMAGE_EXTS):
+            await safe_edit(status, "⚠️ <b>Это фото, а не видео — GIF не получится.</b>")
+            return
+
+        await safe_edit(status, "🎬 <b>Конвертирую в GIF...</b>")
+
+        gif_path = await asyncio.wait_for(convert_to_gif(video_path), timeout=180)
+
+        await status.delete()
+        is_group = callback.message.chat.type in GROUP_CHAT_TYPES
+        if is_group:
+            await callback.message.reply_animation(FSInputFile(gif_path))
+        else:
+            await callback.message.answer_animation(FSInputFile(gif_path))
+
+    except asyncio.TimeoutError:
+        await safe_edit(
+            status,
+            "⏱ <b>Превышено время ожидания.</b>\n\nПопробуй позже или с видео покороче.",
+        )
+    except Exception as e:
+        await safe_edit(
+            status,
+            f"❌ <b>Ошибка конвертации:</b>\n<code>{e}</code>",
+        )
+    finally:
+        for p in (video_path, gif_path):
+            if p and isinstance(p, str) and os.path.exists(p):
+                os.remove(p)
 
 
 @router.callback_query(F.data.startswith("stt:"))
@@ -339,7 +426,7 @@ async def handle_stt(callback: CallbackQuery):
                 await safe_edit(
                     status,
                     "🤷 Shazam не распознал трек.\n\n"
-                    "🧠 <b>Расшифровываю текст через Whisper...</b>\n"
+                    "🧠 <b>Расшифровываю текст...</b>\n"
                     "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
                 )
 
@@ -347,36 +434,36 @@ async def handle_stt(callback: CallbackQuery):
                 await safe_edit(
                     status,
                     "⏱ Shazam не ответил вовремя.\n\n"
-                    "🧠 <b>Пробую Whisper...</b>\n"
+                    "🧠 <b>Расшифровываю...</b>\n"
                     "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
                 )
             except ImportError:
                 await safe_edit(
                     status,
                     "\n\n"
-                    "🧠 Пробую Whisper...\n"
+                    "🧠 Расшифровываю...\n"
                     "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
                 )
 
         elif mode == "video":
             await safe_edit(
                 status,
-                "🧠 <b>Распознаю речь через Whisper...</b>\n"
+                "🧠 <b>Распознаю речь...</b>\n"
                 "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
             )
 
         else:
             await safe_edit(
                 status,
-                "🧠 <b>Расшифровываю текст песни через Whisper...</b>\n"
+                "🧠 <b>Расшифровываю текст песни...</b>\n"
                 "<i>Первый запуск загружает модель — подожди 1-2 минуты</i>",
             )
 
-        lang = None if music_mode else "ru"
+        lang_code = None if music_mode else "ru"
         use_timestamps = mode == "video"
 
         text = await asyncio.wait_for(
-            transcribe_file(path, language=lang, timestamps=use_timestamps),
+            transcribe_file(path, language=lang_code, timestamps=use_timestamps),
             timeout=300,
         )
 
