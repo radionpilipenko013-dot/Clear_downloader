@@ -74,6 +74,8 @@ ProgressCallback = Optional[Callable[[int, str, str], Awaitable[None]]]
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
+YOUTUBE_PLAYER_CLIENTS = ["android", "ios", "web"]
+
 
 def _has_aria2c() -> bool:
     return which("aria2c") is not None
@@ -121,6 +123,11 @@ async def get_video_duration(url: str) -> Optional[int]:
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": YOUTUBE_PLAYER_CLIENTS,
+                }
+            },
             "http_headers": {
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -275,6 +282,11 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
         "socket_timeout": 30,
         "http_chunk_size": 10485760,
         "buffersize": 1024 * 16,
+        "extractor_args": {
+            "youtube": {
+                "player_client": YOUTUBE_PLAYER_CLIENTS,
+            }
+        },
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
