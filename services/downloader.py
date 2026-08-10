@@ -45,9 +45,6 @@ print("=" * 50)
 print("[downloader.py] Проверка ffmpeg/aria2c при старте:")
 print(f"  ffmpeg  -> {shutil.which('ffmpeg')}")
 print(f"  aria2c  -> {shutil.which('aria2c')}")
-print(f"  C:\\ffmpeg\\bin существует? -> {os.path.isdir(r'C:\ffmpeg\bin')}")
-print(f"  C:\\ffmpeg\\bin\\ffmpeg.exe существует? -> {os.path.isfile(r'C:\ffmpeg\bin\ffmpeg.exe')}")
-print(f"  C:\\aria2\\aria2c.exe существует? -> {os.path.isfile(r'C:\aria2\aria2c.exe')}")
 print("=" * 50)
 
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
@@ -69,6 +66,9 @@ def _resolve_ffmpeg_path() -> str:
 
 FFMPEG_PATH = _resolve_ffmpeg_path()
 print(f"[downloader.py] Итоговый FFMPEG_PATH, который будет передан в yt-dlp: {FFMPEG_PATH}")
+
+COOKIES_PATH = os.path.join(os.path.dirname(__file__), "www.youtube.com_cookies.txt")
+print(f"[downloader.py] cookies.txt найден -> {os.path.exists(COOKIES_PATH)}")
 
 ProgressCallback = Optional[Callable[[int, str, str], Awaitable[None]]]
 
@@ -129,6 +129,8 @@ async def get_video_duration(url: str) -> Optional[int]:
                 ),
             },
         }
+        if os.path.exists(COOKIES_PATH):
+            opts["cookiefile"] = COOKIES_PATH
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -281,6 +283,9 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
             ),
         },
     }
+
+    if os.path.exists(COOKIES_PATH):
+        ydl_opts["cookiefile"] = COOKIES_PATH
 
     if HAS_ARIA2C:
         ydl_opts["external_downloader"] = "aria2c"
