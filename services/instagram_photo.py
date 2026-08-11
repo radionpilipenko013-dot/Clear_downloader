@@ -113,6 +113,7 @@ def _find_display_urls(page_text: str) -> list:
 
 def _fetch(url: str, cookies: dict) -> str:
     resp = requests.get(url, headers=HEADERS, cookies=cookies, timeout=15)
+    print(f"[instagram_photo.py] GET {url} -> status={resp.status_code} len={len(resp.text)}")
     resp.raise_for_status()
     return resp.text
 
@@ -140,6 +141,7 @@ def _fetch_story_via_api(user_url_part: str, cookies: dict) -> list:
 def download_instagram_photos(url: str) -> list:
     cookies = _load_cookies()
     has_cookies = bool(cookies)
+    print(f"[instagram_photo.py] cookies_loaded={has_cookies} count={len(cookies)}")
 
     if "/stories/" in url:
         m = re.search(r"instagram\.com/stories/([^/]+)/", url)
@@ -156,16 +158,22 @@ def download_instagram_photos(url: str) -> list:
         prefix = shortcode
 
         embed_text = _fetch(f"https://www.instagram.com/p/{shortcode}/embed/captioned/", cookies)
-        image_urls = [] if _looks_like_login_wall(embed_text) else _find_display_urls(embed_text)
+        embed_login_wall = _looks_like_login_wall(embed_text)
+        print(f"[instagram_photo.py] embed login_wall={embed_login_wall}")
+        image_urls = [] if embed_login_wall else _find_display_urls(embed_text)
+        print(f"[instagram_photo.py] embed image_urls found={len(image_urls)}")
 
         if not image_urls:
             page_text = _fetch(f"https://www.instagram.com/p/{shortcode}/", cookies)
-            if _looks_like_login_wall(page_text) and not has_cookies:
+            page_login_wall = _looks_like_login_wall(page_text)
+            print(f"[instagram_photo.py] page login_wall={page_login_wall}")
+            if page_login_wall and not has_cookies:
                 raise Exception(
                     "Instagram: для этого поста нужны куки (www.instagram.com_cookies.txt) "
                     "— анонимный доступ заблокирован"
                 )
             image_urls = _find_display_urls(page_text)
+            print(f"[instagram_photo.py] page image_urls found={len(image_urls)}")
 
     if not image_urls:
         if not has_cookies:
