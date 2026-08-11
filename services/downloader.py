@@ -9,7 +9,7 @@ from shutil import which
 import yt_dlp
 
 from config import DOWNLOADS_DIR
-from services.instagram_photo import download_instagram_photos
+from services.instagram_photo import download_instagram_photos, is_instagram_reel
 
 
 def _bootstrap_windows_tools():
@@ -240,7 +240,7 @@ def _run_instagram_photo(url: str):
         return download_instagram_photos(url)
     except Exception as e:
         msg = str(e).lower()
-        if "не удалось найти фото" in msg or "no images" in msg:
+        if "не удалось найти фото в посте instagram" in msg:
             raise _InstagramNotPhoto()
         raise
 
@@ -253,7 +253,7 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
 
     is_instagram = "instagram.com" in url
 
-    if is_instagram:
+    if is_instagram and not is_instagram_reel(url):
         if progress_callback:
             await progress_callback(10, "Проверяю тип поста...", "")
         try:

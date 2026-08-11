@@ -1,6 +1,7 @@
 import os
 import re
 import html
+import json
 import requests
 
 from config import DOWNLOADS_DIR
@@ -16,6 +17,13 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "X-IG-App-ID": "936619743392459",
 }
+
+LOGIN_WALL_MARKERS = (
+    "Log in to Instagram",
+    "loginForm",
+    "Войти в Instagram",
+    "Ещё не зарегистрированы",
+)
 
 
 def _load_cookies() -> dict:
@@ -39,6 +47,10 @@ def is_instagram_photo_post(url: str) -> bool:
     )
 
 
+def is_instagram_reel(url: str) -> bool:
+    return "instagram.com" in url and ("/reel/" in url or "/reels/" in url)
+
+
 def _extract_shortcode(url: str) -> str:
     m = re.search(r"instagram\.com/(?:p|reel|reels)/([A-Za-z0-9_-]+)", url)
     if m:
@@ -49,38 +61,65 @@ def _extract_shortcode(url: str) -> str:
     raise Exception("Не удалось определить ID поста Instagram")
 
 
+def _looks_like_login_wall(text: str) -> bool:
+    return any(marker in text for marker in LOGIN_WALL_MARKERS)
+
+
 def _find_display_urls(page_text: str) -> list:
     urls = []
+
     for m in re.finditer(r'"display_url":"([^"]+)"', page_text):
         u = html.unescape(m.group(1).replace("\\u0026", "&").replace("\\/", "/"))
         if u not in urls:
             urls.append(u)
-    if not urls:
-        m = re.search(r'<meta property="og:image" content="([^"]+)"', page_text)
-        if m:
-            urls.append(html.unescape(m.group(1)))
+    if urls:
+        return urls
+
+    for m in re.finditer(r'"image_versions2":\s*\{\s*"candidates":\s*\[\s*\{\s*"url":\s*"([^"]+)"', page_text):
+        u = html.unescape(m.group(1).replace("\\u0026", "&").replace("\\/", "/"))
+        if u not in urls:
+            urls.append(u)
+    if urls:
+        return urls
+
+    ld_matches = re.findall(
+        r'<script type="application/ld\+json">(.*?)</script>', page_text, re.DOTALL
+    )
+    for block in ld_matches:
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue
+        candidates = data if isinstance(data, list) else [data]
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            img = item.get("image")
+            if isinstance(img, str) and img not in urls:
+                urls.append(img)
+            elif isinstance(img, list):
+                for i in img:
+                    if isinstance(i, str) and i not in urls:
+                        urls.append(i)
+    if urls:
+        return urls
+
+    m = re.search(r'<meta property="og:image" content="([^"]+)"', page_text)
+    if m:
+        urls.append(html.unescape(m.group(1)))
+
     return urls
 
 
-def _fetch_via_embed(shortcode: str, cookies: dict) -> list:
-    page_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
-    resp = requests.get(page_url, headers=HEADERS, cookies=cookies, timeout=15)
+def _fetch(url: str, cookies: dict) -> str:
+    resp = requests.get(url, headers=HEADERS, cookies=cookies, timeout=15)
     resp.raise_for_status()
-    return _find_display_urls(resp.text)
-
-
-def _fetch_via_page(shortcode: str, cookies: dict) -> list:
-    page_url = f"https://www.instagram.com/p/{shortcode}/"
-    resp = requests.get(page_url, headers=HEADERS, cookies=cookies, timeout=15)
-    resp.raise_for_status()
-    return _find_display_urls(resp.text)
+    return resp.text
 
 
 def _fetch_story_via_api(user_url_part: str, cookies: dict) -> list:
-    profile_url = f"https://www.instagram.com/{user_url_part}/"
-    resp = requests.get(profile_url, headers=HEADERS, cookies=cookies, timeout=15)
-    resp.raise_for_status()
-    m = re.search(r'"user_id":"(\d+)"', resp.text) or re.search(r'"id":"(\d+)"', resp.text)
+    profile_text = _fetch(f"https://www.instagram.com/{user_url_part}/", cookies)
+    m = re.search(r'"user_id":"(\d+)"', profile_text) or re.search(r'"id":"(\d+)"', profile_text)
     if not m:
         return []
     user_id = m.group(1)
@@ -100,21 +139,39 @@ def _fetch_story_via_api(user_url_part: str, cookies: dict) -> list:
 
 def download_instagram_photos(url: str) -> list:
     cookies = _load_cookies()
+    has_cookies = bool(cookies)
 
     if "/stories/" in url:
         m = re.search(r"instagram\.com/stories/([^/]+)/", url)
         if not m:
             raise Exception("Не удалось найти фото в посте Instagram")
-        image_urls = _fetch_story_via_api(m.group(1), cookies)
+        if not has_cookies:
+            raise Exception(
+                "Instagram: для скачивания сторис нужны куки (www.instagram.com_cookies.txt)"
+            )
         prefix = m.group(1)
+        image_urls = _fetch_story_via_api(m.group(1), cookies)
     else:
         shortcode = _extract_shortcode(url)
         prefix = shortcode
-        image_urls = _fetch_via_embed(shortcode, cookies)
+
+        embed_text = _fetch(f"https://www.instagram.com/p/{shortcode}/embed/captioned/", cookies)
+        image_urls = [] if _looks_like_login_wall(embed_text) else _find_display_urls(embed_text)
+
         if not image_urls:
-            image_urls = _fetch_via_page(shortcode, cookies)
+            page_text = _fetch(f"https://www.instagram.com/p/{shortcode}/", cookies)
+            if _looks_like_login_wall(page_text) and not has_cookies:
+                raise Exception(
+                    "Instagram: для этого поста нужны куки (www.instagram.com_cookies.txt) "
+                    "— анонимный доступ заблокирован"
+                )
+            image_urls = _find_display_urls(page_text)
 
     if not image_urls:
+        if not has_cookies:
+            raise Exception(
+                "Instagram: не удалось найти фото. Добавьте www.instagram.com_cookies.txt и попробуйте снова"
+            )
         raise Exception("Не удалось найти фото в посте Instagram")
 
     paths = []
