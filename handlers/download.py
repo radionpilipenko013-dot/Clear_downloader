@@ -48,6 +48,11 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 FREE_YOUTUBE_LIMIT_MIN = 10
 PREMIUM_YOUTUBE_LIMIT_MIN = 60
 
+NOT_FOUND_MSG = (
+    "😕 <b>По этой ссылке ничего не найдено.</b>\n\n"
+    "Проверь, что ссылка правильная и пост/видео доступны публично."
+)
+
 _pending_stt: dict[int, str] = {}
 
 
@@ -273,10 +278,9 @@ async def handle_link(message: Message):
 
     except Exception as e:
         error = e
+        print(f"[handlers/download.py] Ошибка скачивания {url}: {e}")
         try:
-            await msg.edit_text(
-                f"❌ <b>Ошибка:</b> <code>{e}</code>", parse_mode="HTML"
-            )
+            await msg.edit_text(NOT_FOUND_MSG, parse_mode="HTML")
         except Exception:
             pass
     finally:
@@ -343,10 +347,8 @@ async def handle_gif(callback: CallbackQuery):
             "⏱ <b>Превышено время ожидания.</b>\n\nПопробуй позже или с видео покороче.",
         )
     except Exception as e:
-        await safe_edit(
-            status,
-            f"❌ <b>Ошибка конвертации:</b>\n<code>{e}</code>",
-        )
+        print(f"[handlers/download.py] Ошибка конвертации в GIF: {e}")
+        await safe_edit(status, NOT_FOUND_MSG)
     finally:
         for p in (video_path, gif_path):
             if p and isinstance(p, str) and os.path.exists(p):
@@ -496,10 +498,8 @@ async def handle_stt(callback: CallbackQuery):
             "<code>pip install openai-whisper</code>",
         )
     except Exception as e:
-        await safe_edit(
-            status,
-            f"❌ <b>Ошибка распознавания:</b>\n<code>{e}</code>",
-        )
+        print(f"[handlers/download.py] Ошибка распознавания: {e}")
+        await safe_edit(status, NOT_FOUND_MSG)
     finally:
         if path:
             paths = path if isinstance(path, list) else [path]
