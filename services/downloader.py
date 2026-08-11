@@ -9,6 +9,7 @@ from shutil import which
 import yt_dlp
 
 from config import DOWNLOADS_DIR
+from services.instagram_photo import download_instagram_photos
 
 
 def _bootstrap_windows_tools():
@@ -68,13 +69,21 @@ FFMPEG_PATH = _resolve_ffmpeg_path()
 print(f"[downloader.py] Итоговый FFMPEG_PATH, который будет передан в yt-dlp: {FFMPEG_PATH}")
 
 COOKIES_PATH = os.path.join(os.path.dirname(__file__), "www.youtube.com_cookies.txt")
-print(f"[downloader.py] cookies.txt найден -> {os.path.exists(COOKIES_PATH)}")
+TIKTOK_COOKIES_PATH = os.path.join(os.path.dirname(__file__), "www.tiktok.com_cookies.txt")
+INSTAGRAM_COOKIES_PATH = os.path.join(os.path.dirname(__file__), "www.instagram.com_cookies.txt")
+print(f"[downloader.py] youtube cookies.txt найден -> {os.path.exists(COOKIES_PATH)}")
+print(f"[downloader.py] tiktok cookies.txt найден -> {os.path.exists(TIKTOK_COOKIES_PATH)}")
+print(f"[downloader.py] instagram cookies.txt найден -> {os.path.exists(INSTAGRAM_COOKIES_PATH)}")
 
 ProgressCallback = Optional[Callable[[int, str, str], Awaitable[None]]]
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 YOUTUBE_PLAYER_CLIENTS = ["android", "ios", "web"]
+
+
+class _InstagramNotPhoto(Exception):
+    pass
 
 
 def _has_aria2c() -> bool:
@@ -226,11 +235,33 @@ def _resolve_file(ydl, info) -> Optional[str]:
     return None
 
 
+def _run_instagram_photo(url: str):
+    try:
+        return download_instagram_photos(url)
+    except Exception as e:
+        msg = str(e).lower()
+        if "не удалось найти фото" in msg or "no images" in msg:
+            raise _InstagramNotPhoto()
+        raise
+
+
 async def download_video(url: str, progress_callback: ProgressCallback = None) -> Union[str, list]:
     if is_music_platform(url):
         return await download_music(url, progress_callback)
 
     loop = asyncio.get_event_loop()
+
+    is_instagram = "instagram.com" in url
+
+    if is_instagram:
+        if progress_callback:
+            await progress_callback(10, "Проверяю тип поста...", "")
+        try:
+            result = await loop.run_in_executor(None, _run_instagram_photo, url)
+            if result:
+                return result
+        except _InstagramNotPhoto:
+            pass
 
     last_pct = {"v": 0}
 
@@ -276,7 +307,6 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
                 )
 
     is_tiktok = "tiktok.com" in url
-    is_instagram = "instagram.com" in url
 
     ydl_opts = {
         "quiet": True,
@@ -305,7 +335,11 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
         },
     }
 
-    if os.path.exists(COOKIES_PATH):
+    if is_tiktok and os.path.exists(TIKTOK_COOKIES_PATH):
+        ydl_opts["cookiefile"] = TIKTOK_COOKIES_PATH
+    elif is_instagram and os.path.exists(INSTAGRAM_COOKIES_PATH):
+        ydl_opts["cookiefile"] = INSTAGRAM_COOKIES_PATH
+    elif not is_tiktok and not is_instagram and os.path.exists(COOKIES_PATH):
         ydl_opts["cookiefile"] = COOKIES_PATH
 
     if HAS_ARIA2C:
