@@ -115,6 +115,14 @@ def is_tiktok_photo(url: str) -> bool:
     return "tiktok.com" in url and "/photo/" in url
 
 
+def is_tiktok_story(url: str) -> bool:
+    return "tiktok.com" in url and "/story/" in url
+
+
+def is_instagram_story(url: str) -> bool:
+    return "instagram.com" in url and "/stories/" in url
+
+
 async def get_video_duration(url: str) -> Optional[int]:
     loop = asyncio.get_event_loop()
 
@@ -268,6 +276,7 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
                 )
 
     is_tiktok = "tiktok.com" in url
+    is_instagram = "instagram.com" in url
 
     ydl_opts = {
         "quiet": True,
@@ -275,7 +284,7 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
         "noprogress": False,
         "progress_hooks": [ydl_progress_hook],
         "ffmpeg_location": FFMPEG_PATH,
-        "concurrent_fragment_downloads": 4 if is_tiktok else 8,
+        "concurrent_fragment_downloads": 4 if (is_tiktok or is_instagram) else 8,
         "retries": 10,
         "fragment_retries": 10,
         "extractor_retries": 5,
@@ -315,13 +324,17 @@ async def download_video(url: str, progress_callback: ProgressCallback = None) -
         }
 
     if is_tiktok:
-        if is_tiktok_photo(url):
+        if is_tiktok_photo(url) or is_tiktok_story(url):
             ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s_%(playlist_index)s.%(ext)s"
             ydl_opts["format"] = "best"
         else:
             ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
             ydl_opts["format"] = "bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best"
             ydl_opts["merge_output_format"] = "mp4"
+    elif is_instagram:
+        ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s_%(playlist_index)s.%(ext)s"
+        ydl_opts["format"] = "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+        ydl_opts["merge_output_format"] = "mp4"
     elif "facebook.com" in url or "fb.watch" in url:
         ydl_opts["outtmpl"] = f"{DOWNLOADS_DIR}/%(id)s.%(ext)s"
         ydl_opts["format"] = (
