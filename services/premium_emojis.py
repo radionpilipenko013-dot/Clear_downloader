@@ -129,11 +129,6 @@ PREMIUM_EMOJI_FALLBACK: dict[str, str] = {
 
 
 def tg_emoji(key: str) -> str:
-    """
-    Возвращает готовую HTML-разметку <tg-emoji> по ключу.
-    Требует parse_mode="HTML" у сообщения, в которое подставляется.
-    Не использовать в тексте InlineKeyboardButton.
-    """
     emoji_id = PREMIUM_EMOJI[key]
     fallback = PREMIUM_EMOJI_FALLBACK[key]
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'

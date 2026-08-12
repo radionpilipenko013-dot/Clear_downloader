@@ -20,10 +20,6 @@ def pdf_to_docx(input_path: str, output_path: str) -> str:
 
 
 def docx_to_pdf(input_path: str, output_path: str) -> str:
-    """
-    Конвертация DOCX -> PDF через LibreOffice в headless-режиме.
-    Требует установленного пакета libreoffice в системе (см. railpack-plan.json).
-    """
     output_dir = os.path.dirname(output_path) or "."
     os.makedirs(output_dir, exist_ok=True)
 
