@@ -41,8 +41,16 @@ async def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await pre_checkout_query.answer(ok=True)
 
 
-@router.message(F.successful_payment.func(lambda p: p.invoice_payload == "premium_30days"))
+# ИСПРАВЛЕНО: было F.successful_payment.func(lambda p: p.invoice_payload == "premium_30days")
+# Этот фильтр вызывал лямбду даже когда message.successful_payment is None (на любом обычном
+# сообщении), из-за чего p.invoice_payload падал с AttributeError на КАЖДОМ апдейте в чате.
+# Теперь сначала проверяем, что платёж вообще есть (F.successful_payment), а payload
+# сравниваем внутри функции.
+@router.message(F.successful_payment)
 async def process_successful_payment(message: Message):
+    if message.successful_payment.invoice_payload != "premium_30days":
+        return
+
     now = datetime.utcnow()
     async with SessionLocal() as session:
         result = await session.execute(select(User).where(User.tg_id == message.from_user.id))
